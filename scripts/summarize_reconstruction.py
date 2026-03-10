@@ -12,7 +12,7 @@ def load_metrics(path: Path):
 
 
 def main():
-    root = Path("/Users/kylehowells/Developer/Github/demucs-mlx-swift/reference_outputs/reconstruction_eval/latest")
+    root = Path(__file__).resolve().parents[1] / "reference_outputs/reconstruction_eval/latest"
     files = {
         "demucs": root / "demucs_reconstruction_metrics.json",
         "demucs-mlx": root / "demucs_mlx_reconstruction_metrics.json",

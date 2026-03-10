@@ -1,7 +1,7 @@
 # Reference Comparison (2026-03-09)
 
 Input:
-`/Users/kylehowells/Developer/Github/demucs-mlx-swift/Sample Files/09 Still Into You.m4a`
+`Github/demucs-mlx-swift/Sample Files/09 Still Into You.m4a`
 
 ## demucs-mlx vs demucs
 

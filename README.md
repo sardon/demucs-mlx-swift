@@ -12,9 +12,9 @@ Swift package for Demucs-style music source separation, designed for **macOS + i
 
 ## Current Status
 
-This initial repo version implements the full separation pipeline and public API with a deterministic DSP baseline model backend (`htdemucs` stem interface: `drums`, `bass`, `other`, `vocals`).
+This repo implements the separation pipeline and public API with an MLX Demucs runtime backend.
 
-It is structured so a full HTDemucs MLX neural backend can be dropped in without breaking API or CLI usage.
+Model files are resolved from local paths first and then downloaded from Hugging Face if missing.
 
 ## Requirements
 
@@ -27,7 +27,7 @@ It is structured so a full HTDemucs MLX neural backend can be dropped in without
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/<your-org>/demucs-mlx-swift", branch: "main")
+    .package(url: "https://github.com/kylehowells/demucs-mlx-swift", branch: "master")
 ]
 ```
 
@@ -99,16 +99,19 @@ Model resolution order for `htdemucs`:
 Environment overrides:
 
 - `DEMUCS_MLX_SWIFT_MODEL_REPO` can be set to a Hub repo ID (`org/repo`) or URL (`https://huggingface.co/org/repo`).
+- Default repo currently includes `htdemucs`; other registry names require corresponding files in your local dir or selected Hub repo.
 
-## Metal Shader Library (Only Needed for MLX Runtime Paths)
+## Metal Shader Library (Required for MLX Inference)
 
-The default heuristic backend does not require `mlx.metallib`.
+MLX inference requires `mlx.metallib`.
 
-If you add/use MLX GPU runtime paths (for example, a future HTDemucs MLX backend), build `mlx.metallib` after `swift build`:
+After `swift build`, generate it with:
 
 ```bash
 ./scripts/build_mlx_metallib.sh release
 ```
+
+If you run an `xcodebuild`/DerivedData binary, place `mlx.metallib` next to that executable.
 
 If you see `missing Metal Toolchain`, run:
 
@@ -127,6 +130,6 @@ make clean
 
 ## Roadmap
 
-1. Add HTDemucs MLX neural backend equivalent to `demucs-mlx` Python implementation.
+1. Add additional converted checkpoints and configs (`htdemucs_ft`, `htdemucs_6s`, etc.) to the default Hub repo.
 2. Add regression tests against reference stems.
-3. Add Wiener/hybrid blend parity with Python references.
+3. Add performance tuning (kernel fusion/custom kernels) for faster inference.

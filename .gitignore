@@ -8,5 +8,7 @@ DerivedData/
 .netrc
 /.scratch
 /.venv311
+/.xcodebuild
 /reference_outputs
 /Models
+/Sample Files/*
