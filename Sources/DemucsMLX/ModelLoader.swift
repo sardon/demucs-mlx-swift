@@ -23,6 +23,17 @@ enum ModelLoader {
             candidates.append(envURL)
         }
 
+        // Check standard cache directory
+        if let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            let cacheModel = cachesDir
+                .appendingPathComponent("demucs-mlx-swift-models", isDirectory: true)
+                .appendingPathComponent(modelName, isDirectory: true)
+            candidates.append(cacheModel)
+        }
+        let homeCache = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".cache/demucs-mlx-swift-models/\(modelName)", isDirectory: true)
+        candidates.append(homeCache)
+
         let cwd = URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)
         candidates.append(cwd.appendingPathComponent(".scratch/models/\(modelName)", isDirectory: true))
         candidates.append(cwd.appendingPathComponent("Models/\(modelName)", isDirectory: true))
