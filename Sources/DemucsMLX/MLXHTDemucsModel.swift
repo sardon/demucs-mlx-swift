@@ -155,10 +155,10 @@ final class HTDemucsGraph: Module {
 
     @ModuleInfo(key: "freq_emb") var freqEmb: ScaledEmbedding
 
-    @ModuleInfo(key: "channel_upsampler") var channelUpsampler: Conv1dNCL
-    @ModuleInfo(key: "channel_downsampler") var channelDownsampler: Conv1dNCL
-    @ModuleInfo(key: "channel_upsampler_t") var channelUpsamplerT: Conv1dNCL
-    @ModuleInfo(key: "channel_downsampler_t") var channelDownsamplerT: Conv1dNCL
+    @ModuleInfo(key: "channel_upsampler") var channelUpsampler: Conv1dNCL?
+    @ModuleInfo(key: "channel_downsampler") var channelDownsampler: Conv1dNCL?
+    @ModuleInfo(key: "channel_upsampler_t") var channelUpsamplerT: Conv1dNCL?
+    @ModuleInfo(key: "channel_downsampler_t") var channelDownsamplerT: Conv1dNCL?
 
     @ModuleInfo(key: "crosstransformer") var crosstransformer: CrossTransformerEncoder
 
@@ -191,13 +191,27 @@ final class HTDemucsGraph: Module {
             scale: config.embScale
         )
 
-        self._channelUpsampler.wrappedValue = Conv1dNCL(max(1, transformerChannels), max(1, config.bottomChannels), kernelSize: 1)
-        self._channelDownsampler.wrappedValue = Conv1dNCL(max(1, config.bottomChannels), max(1, transformerChannels), kernelSize: 1)
-        self._channelUpsamplerT.wrappedValue = Conv1dNCL(max(1, transformerChannels), max(1, config.bottomChannels), kernelSize: 1)
-        self._channelDownsamplerT.wrappedValue = Conv1dNCL(max(1, config.bottomChannels), max(1, transformerChannels), kernelSize: 1)
+        // When bottom_channels > 0, create channel up/downsamplers to reduce
+        // dimensionality before the transformer. When bottom_channels == 0,
+        // the transformer operates directly on transformerChannels (matching
+        // the original Python Demucs behavior).
+        let transformerDim: Int
+        if config.bottomChannels > 0 {
+            self._channelUpsampler.wrappedValue = Conv1dNCL(transformerChannels, config.bottomChannels, kernelSize: 1)
+            self._channelDownsampler.wrappedValue = Conv1dNCL(config.bottomChannels, transformerChannels, kernelSize: 1)
+            self._channelUpsamplerT.wrappedValue = Conv1dNCL(transformerChannels, config.bottomChannels, kernelSize: 1)
+            self._channelDownsamplerT.wrappedValue = Conv1dNCL(config.bottomChannels, transformerChannels, kernelSize: 1)
+            transformerDim = config.bottomChannels
+        } else {
+            self._channelUpsampler.wrappedValue = nil
+            self._channelDownsampler.wrappedValue = nil
+            self._channelUpsamplerT.wrappedValue = nil
+            self._channelDownsamplerT.wrappedValue = nil
+            transformerDim = transformerChannels
+        }
 
         self._crosstransformer.wrappedValue = CrossTransformerEncoder(
-            dim: max(1, config.bottomChannels),
+            dim: transformerDim,
             hiddenScale: config.tHiddenScale,
             numHeads: config.tHeads,
             numLayers: config.tLayers,
@@ -503,7 +517,8 @@ final class HTDemucsGraph: Module {
         }
 
         if config.tLayers > 0 {
-            if config.bottomChannels > 0 {
+            if config.bottomChannels > 0, let channelUpsampler, let channelDownsampler,
+               let channelUpsamplerT, let channelDownsamplerT {
                 let b = x.dim(0)
                 let c = x.dim(1)
                 let f = x.dim(2)
