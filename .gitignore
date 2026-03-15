@@ -12,3 +12,4 @@ DerivedData/
 /reference_outputs
 /Models
 /Sample Files/*
+__pycache__/
