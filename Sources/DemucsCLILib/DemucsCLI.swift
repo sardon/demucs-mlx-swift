@@ -1,6 +1,7 @@
 import ArgumentParser
 import DemucsMLX
 import Foundation
+import MLX
 
 public struct DemucsCLI: ParsableCommand {
     public static let configuration = CommandConfiguration(
@@ -85,6 +86,13 @@ public struct DemucsCLI: ParsableCommand {
         // Determine output format and file extension from flags.
         let (outputFormat, fileExtension) = try resolveOutputFormat()
 
+        // Allow setting MLX cache limit via environment variable (in bytes).
+        // e.g. DEMUCS_MLX_CACHE_LIMIT=2097152 for 2 MB
+        if let cacheLimitStr = ProcessInfo.processInfo.environment["DEMUCS_MLX_CACHE_LIMIT"],
+           let cacheLimitBytes = Int(cacheLimitStr) {
+            MLX.GPU.set(cacheLimit: cacheLimitBytes)
+        }
+
         let params = DemucsSeparationParameters(
             shifts: shifts,
             overlap: overlap,
@@ -137,11 +145,6 @@ public struct DemucsCLI: ParsableCommand {
                 guard let selectedAudio = result.stems[stem]
                 else { continue }
 
-                // Write the selected stem
-                let stemURL = trackDir.appendingPathComponent("\(stem).\(fileExtension)", isDirectory: false)
-                try AudioIO.writeAudio(selectedAudio, to: stemURL, format: outputFormat)
-                print("  wrote \(stemURL.path)")
-
                 // Compute the complement: original mix minus the selected stem
                 let mixSamples = result.input.channelMajorSamples
                 let stemSamples = selectedAudio.channelMajorSamples
@@ -156,22 +159,72 @@ public struct DemucsCLI: ParsableCommand {
                     sampleRate: selectedAudio.sampleRate
                 )
 
+                // Write both stems in parallel
+                let stemURL = trackDir.appendingPathComponent("\(stem).\(fileExtension)", isDirectory: false)
                 let complementURL = trackDir.appendingPathComponent("no_\(stem).\(fileExtension)", isDirectory: false)
-                try AudioIO.writeAudio(complementAudio, to: complementURL, format: outputFormat)
+
+                let writeError = Self.writeStemsParallel([
+                    (selectedAudio, stemURL, outputFormat),
+                    (complementAudio, complementURL, outputFormat),
+                ])
+                if let error = writeError { throw error }
+                print("  wrote \(stemURL.path)")
                 print("  wrote \(complementURL.path)")
             }
             else {
-                // Normal mode: write all stems
-                for source in separator.sources {
-                    guard let stemAudio = result.stems[source]
-                    else { continue }
-
+                // Normal mode: write all stems in parallel
+                let writeJobs: [(DemucsAudio, URL, AudioOutputFormat)] = separator.sources.compactMap { source in
+                    guard let stemAudio = result.stems[source] else { return nil }
                     let stemURL = trackDir.appendingPathComponent("\(source).\(fileExtension)", isDirectory: false)
-                    try AudioIO.writeAudio(stemAudio, to: stemURL, format: outputFormat)
-                    print("  wrote \(stemURL.path)")
+                    return (stemAudio, stemURL, outputFormat)
+                }
+
+                let writeError = Self.writeStemsParallel(writeJobs)
+                if let error = writeError { throw error }
+                for (_, url, _) in writeJobs {
+                    print("  wrote \(url.path)")
                 }
             }
         }
+    }
+
+    // MARK: - Parallel Stem Writing
+
+    /// Write multiple stem files in parallel. Returns the first error encountered, or nil on success.
+    private static func writeStemsParallel(
+        _ jobs: [(audio: DemucsAudio, url: URL, format: AudioOutputFormat)]
+    ) -> Error? {
+        if jobs.isEmpty { return nil }
+        if jobs.count == 1 {
+            do {
+                try AudioIO.writeAudio(jobs[0].audio, to: jobs[0].url, format: jobs[0].format)
+                return nil
+            } catch {
+                return error
+            }
+        }
+
+        let group = DispatchGroup()
+        let queue = DispatchQueue(label: "com.demucs.stem-writer", attributes: .concurrent)
+        let lock = NSLock()
+        var firstError: Error?
+
+        for job in jobs {
+            group.enter()
+            queue.async {
+                do {
+                    try AudioIO.writeAudio(job.audio, to: job.url, format: job.format)
+                } catch {
+                    lock.lock()
+                    if firstError == nil { firstError = error }
+                    lock.unlock()
+                }
+                group.leave()
+            }
+        }
+
+        group.wait()
+        return firstError
     }
 
     // MARK: - Async Separation
