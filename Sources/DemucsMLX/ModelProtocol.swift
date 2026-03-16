@@ -166,6 +166,17 @@ enum DemucsModelFactory {
         )
     }
 
+    /// Apply post-load quantization to a model graph's Linear layers.
+    private static func applyQuantizationIfRequested(_ graph: Module) {
+        guard let bitsStr = ProcessInfo.processInfo.environment["DEMUCS_QUANTIZE_BITS"],
+              let bits = Int(bitsStr), [4, 8].contains(bits) else { return }
+        let groupSize = Int(ProcessInfo.processInfo.environment["DEMUCS_QUANTIZE_GROUP_SIZE"] ?? "64") ?? 64
+        MLXNN.quantize(model: graph, groupSize: groupSize, bits: bits) { _, module in
+            module is Linear
+        }
+        MLX.eval(graph.parameters())
+    }
+
     /// Build and load weights into a single model graph.
     private static func buildModelGraph(
         descriptor: DemucsModelDescriptor,
@@ -178,6 +189,7 @@ enum DemucsModelFactory {
             let cfg = try HTDemucsRuntimeConfig.fromJSON(config)
             let graph = HTDemucsGraph(config: cfg)
             try graph.update(parameters: ModuleParameters.unflattened(weights), verify: .all)
+            applyQuantizationIfRequested(graph)
             MLX.eval(graph.parameters())
             let updatedDescriptor = DemucsModelDescriptor(
                 name: descriptor.name,
@@ -192,6 +204,7 @@ enum DemucsModelFactory {
             let cfg = try HDemucsRuntimeConfig.fromJSON(config)
             let graph = HDemucsGraph(config: cfg)
             try graph.update(parameters: ModuleParameters.unflattened(weights), verify: .all)
+            applyQuantizationIfRequested(graph)
             MLX.eval(graph.parameters())
             let updatedDescriptor = DemucsModelDescriptor(
                 name: descriptor.name,
@@ -206,6 +219,7 @@ enum DemucsModelFactory {
             let cfg = try DemucsRuntimeConfig.fromJSON(config)
             let graph = DemucsGraph(config: cfg)
             try graph.update(parameters: ModuleParameters.unflattened(weights), verify: .all)
+            applyQuantizationIfRequested(graph)
             MLX.eval(graph.parameters())
             let updatedDescriptor = DemucsModelDescriptor(
                 name: descriptor.name,
