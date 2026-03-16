@@ -337,7 +337,7 @@ def extract_kwargs(model) -> dict:
     return kwargs
 
 
-def export_model(model_name: str, out_dir: Path) -> bool:
+def export_model(model_name: str, out_dir: Path, dtype: str = "float16") -> bool:
     """Export a single model (or bag) to safetensors + config JSON."""
     from demucs.pretrained import get_model
     from demucs.apply import BagOfModels
@@ -409,6 +409,15 @@ def export_model(model_name: str, out_dir: Path) -> bool:
         config["model_class"] = model_classes[0]
         config["kwargs"] = model_configs[0]["kwargs"]
 
+    # Convert dtype if requested
+    if dtype == "float16":
+        print(f"  Converting weights to float16...")
+        all_weights = {
+            k: v.astype(np.float16) if v.dtype == np.float32 else v
+            for k, v in all_weights.items()
+        }
+        config["dtype"] = "float16"
+
     # Save files
     model_dir = out_dir / model_name
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -429,7 +438,7 @@ def export_model(model_name: str, out_dir: Path) -> bool:
         json.dump(config, f, indent=2, default=str)
 
     size_mb = safetensors_path.stat().st_size / (1024 * 1024)
-    print(f"  Wrote {safetensors_path} ({len(all_weights)} tensors, {size_mb:.0f} MB)")
+    print(f"  Wrote {safetensors_path} ({len(all_weights)} tensors, {size_mb:.0f} MB, {dtype})")
     print(f"  Wrote {config_path}")
     return True
 
@@ -449,16 +458,23 @@ def main():
         default="./Models",
         help="Output root directory (files go into <out-dir>/<model_name>/)",
     )
+    ap.add_argument(
+        "--dtype",
+        choices=["float16", "float32"],
+        default="float16",
+        help="Weight data type (default: float16, recommended for Apple Silicon)",
+    )
     args = ap.parse_args()
 
     models = args.models or ALL_MODELS
     out_dir = Path(args.out_dir).resolve()
+    dtype = args.dtype
 
     exported = 0
     failed = 0
 
     for name in models:
-        if export_model(name, out_dir):
+        if export_model(name, out_dir, dtype=dtype):
             exported += 1
         else:
             failed += 1
