@@ -295,8 +295,22 @@ func fusedGroupNormGELU(
     }
 
     let xContig = contiguous(x.reshaped([b, c, spatialSize]))
-    let wF32 = contiguous(weight.asType(.float32))
-    let bF32 = contiguous(bias.asType(.float32))
+    var wF32 = contiguous(weight.asType(.float32))
+    var bF32 = contiguous(bias.asType(.float32))
+
+    // MLX's write_signature uses "constant" storage qualifier for arrays with <8
+    // elements and "device" for ≥8. If the same kernel name is used with different
+    // weight/bias sizes (e.g. 6-channel vs 12-channel DConv layers), the generated
+    // Metal source changes → clear_library() releases pipeline states still in use
+    // by an in-flight GPU command buffer → crash. Padding to ≥8 elements fixes this
+    // by locking in "device" consistently across all channel counts.
+    let minDeviceSize = 8
+    if wF32.dim(0) < minDeviceSize {
+        let pad = MLXArray.zeros([minDeviceSize - wF32.dim(0)])
+        wF32 = concatenated([wF32, pad], axis: 0)
+        bF32 = concatenated([bF32, pad], axis: 0)
+    }
+
     let epsArr = MLXArray([eps])
     let params = MLXArray([Int32(numGroups), Int32(channelsPerGroup), Int32(spatialSize), Int32(c)])
 
